@@ -8,6 +8,8 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -97,73 +99,73 @@ class GameViewModel(
         _gameState.value = _gameState.value.copy(includeJokers = newIncludeJokers)
     }
 
-    private val roomListener: ValueEventListener = object : ValueEventListener {
-        private var lastUpdate = 0L
-        override fun onDataChange(snapshot: DataSnapshot) {
-            val now = System.currentTimeMillis()
-            if (now - lastUpdate < 200) return
-            lastUpdate = now
-            println("Firebase update started for room ${_gameState.value.roomCode}, player: ${_gameState.value.playerName}")
-            val newPlayers = snapshot.child("players").children.mapNotNull { it.key }
-            val hostName = snapshot.child("host").getValue(String::class.java) ?: "Host"
+    private var debounceJob: Job? = null
 
-            // Reassign host if current host is not in players list
-            if (!newPlayers.contains(hostName) && newPlayers.isNotEmpty()) {
-                viewModelScope.launch {
+    private val roomListener: ValueEventListener = object : ValueEventListener {
+        override fun onDataChange(snapshot: DataSnapshot) {
+            debounceJob?.cancel() // Cancel any pending update
+            debounceJob = viewModelScope.launch {
+                delay(300) // Debounce for 300ms
+                println("Firebase update started for room ${_gameState.value.roomCode}, player: ${_gameState.value.playerName}")
+                val newPlayers = snapshot.child("players").children.mapNotNull { it.key }
+                val hostName = snapshot.child("host").getValue(String::class.java) ?: "Host"
+
+                // Reassign host if current host is not in players list
+                if (!newPlayers.contains(hostName) && newPlayers.isNotEmpty()) {
                     val newHost = newPlayers.first()
                     roomRef.child("host").setValue(newHost).await()
                     roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     println("Host reassigned to $newHost after $hostName disconnected")
                 }
-            }
 
-            // Check if this player is becoming host
-            val isNowHost = _gameState.value.playerName == hostName && !_gameState.value.isHost
+                // Check if this player is becoming host
+                val isNowHost = _gameState.value.playerName == hostName && !_gameState.value.isHost
 
-            // Update state with dialog trigger first
-            if (isNowHost) {
-                _gameState.value = _gameState.value.copy(showNewHostDialog = true)
-            }
-
-            // Then update the rest of the state
-            _gameState.value = _gameState.value.copy(
-                players = newPlayers,
-                isHost = _gameState.value.playerName == hostName,
-                gameStarted = snapshot.child("state").value == "started",
-                deckEmpty = snapshot.child("gameData").child("deck").childrenCount == 0L,
-                deckSize = snapshot.child("gameData").child("deck").childrenCount.toInt(),
-                otherPlayersHandSizes = newPlayers.filter { it != _gameState.value.playerName }.associateWith {
-                    snapshot.child("gameData").child("playerHands").child(it).childrenCount.toInt()
+                // Update state with dialog trigger first
+                if (isNowHost) {
+                    _gameState.value = _gameState.value.copy(showNewHostDialog = true)
                 }
-            )
 
-            println("Players updated: ${_gameState.value.players}")
-            println("Deck size synced: ${_gameState.value.deckSize}, empty: ${_gameState.value.deckEmpty}")
-            if (_gameState.value.gameStarted) {
-                val rawHand = snapshot.child("gameData").child("playerHands").child(_gameState.value.playerName)
-                    .children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
-                println("Raw hand for ${_gameState.value.playerName} from Firebase: ${rawHand.map { it.rank + " of " + it.suit }}")
-                val newTable = snapshot.child("gameData").child("table").child("piles").children.mapNotNull { pileSnapshot ->
-                    pileSnapshot.children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
-                        .also { pile -> println("Table pile: ${pile.map { it.rank + " of " + it.suit }}") }
-                }
-                val newDiscardPile = snapshot.child("gameData").child("discardPile").children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
-                println("Discard pile updated: ${newDiscardPile.map { it.rank + " of " + it.suit }}")
-                val lastPlayed = snapshot.child("gameData").child("lastPlayed")
-                val lastPlayedPlayer = lastPlayed.child("player").getValue(String::class.java)
-                val lastPlayedHand = lastPlayed.child("hand").children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
-                println("Last played by $lastPlayedPlayer: ${lastPlayedHand.map { it.rank + " of " + it.suit }}")
+                // Then update the rest of the state
                 _gameState.value = _gameState.value.copy(
-                    myHand = rawHand,
-                    table = newTable,
-                    discardPile = newDiscardPile,
-                    canRecall = lastPlayedPlayer == _gameState.value.playerName && lastPlayedHand.isNotEmpty() && newTable.isNotEmpty() && newTable.last().map { it.id } == lastPlayedHand.map { it.id }
+                    players = newPlayers,
+                    isHost = _gameState.value.playerName == hostName,
+                    gameStarted = snapshot.child("state").value == "started",
+                    deckEmpty = snapshot.child("gameData").child("deck").childrenCount == 0L,
+                    deckSize = snapshot.child("gameData").child("deck").childrenCount.toInt(),
+                    otherPlayersHandSizes = newPlayers.filter { it != _gameState.value.playerName }.associateWith {
+                        snapshot.child("gameData").child("playerHands").child(it).childrenCount.toInt()
+                    }
                 )
-                println("Hand updated for ${_gameState.value.playerName}: ${_gameState.value.myHand.map { it.rank + " of " + it.suit }}")
-                println("Table updated: ${_gameState.value.table.map { it.map { card -> card.rank + " of " + card.suit } }}")
-                println("Other players hand sizes for ${_gameState.value.playerName}: ${_gameState.value.otherPlayersHandSizes}")
+
+                println("Players updated: ${_gameState.value.players}")
+                println("Deck size synced: ${_gameState.value.deckSize}, empty: ${_gameState.value.deckEmpty}")
+                if (_gameState.value.gameStarted) {
+                    val rawHand = snapshot.child("gameData").child("playerHands").child(_gameState.value.playerName)
+                        .children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
+                    println("Raw hand for ${_gameState.value.playerName} from Firebase: ${rawHand.map { it.rank + " of " + it.suit }}")
+                    val newTable = snapshot.child("gameData").child("table").child("piles").children.mapNotNull { pileSnapshot ->
+                        pileSnapshot.children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
+                            .also { pile -> println("Table pile: ${pile.map { it.rank + " of " + it.suit }}") }
+                    }
+                    val newDiscardPile = snapshot.child("gameData").child("discardPile").children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
+                    println("Discard pile updated: ${newDiscardPile.map { it.rank + " of " + it.suit }}")
+                    val lastPlayed = snapshot.child("gameData").child("lastPlayed")
+                    val lastPlayedPlayer = lastPlayed.child("player").getValue(String::class.java)
+                    val lastPlayedHand = lastPlayed.child("hand").children.mapNotNull { CardGameLogic.cardFromSnapshot(it, cardResourceMap) }
+                    println("Last played by $lastPlayedPlayer: ${lastPlayedHand.map { it.rank + " of " + it.suit }}")
+                    _gameState.value = _gameState.value.copy(
+                        myHand = rawHand,
+                        table = newTable,
+                        discardPile = newDiscardPile,
+                        canRecall = lastPlayedPlayer == _gameState.value.playerName && lastPlayedHand.isNotEmpty() && newTable.isNotEmpty() && newTable.last().map { it.id } == lastPlayedHand.map { it.id }
+                    )
+                    println("Hand updated for ${_gameState.value.playerName}: ${_gameState.value.myHand.map { it.rank + " of " + it.suit }}")
+                    println("Table updated: ${_gameState.value.table.map { it.map { card -> card.rank + " of " + card.suit } }}")
+                    println("Other players hand sizes for ${_gameState.value.playerName}: ${_gameState.value.otherPlayersHandSizes}")
+                }
+                println("Firebase update completed for ${_gameState.value.playerName}")
             }
-            println("Firebase update completed for ${_gameState.value.playerName}")
         }
 
         override fun onCancelled(error: DatabaseError) {
