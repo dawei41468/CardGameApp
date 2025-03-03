@@ -34,7 +34,10 @@ data class GameState(
     val isPlayingCards: Boolean = false,
     val isDrawingCard: Boolean = false,
     val errorMessage: String = "",
-    val errorType: ErrorType = ErrorType.NONE
+    val errorType: ErrorType = ErrorType.NONE,
+    val successMessage: String = "",
+    val isConnected: Boolean = true,
+    val showNewHostDialog: Boolean = false
 )
 
 enum class ErrorType {
@@ -48,7 +51,40 @@ class GameViewModel(
     private var _gameState = mutableStateOf(GameState())
     val gameState: State<GameState> = _gameState
 
-    // Public setters for GameState fields
+    private val connectionListener = object : ValueEventListener {
+        override fun onDataChange(snapshot: DataSnapshot) {
+            val connected = snapshot.getValue(Boolean::class.java) ?: false
+            println("Firebase .info/connected snapshot: $connected (key: ${snapshot.key}, exists: ${snapshot.exists()})")
+            println("Previous isConnected: ${_gameState.value.isConnected}")
+            if (connected != _gameState.value.isConnected) {
+                _gameState.value = _gameState.value.copy(isConnected = connected)
+                println("Network status changed to: ${if (connected) "Connected" else "Disconnected"}")
+                if (connected && _gameState.value.roomCode.isNotEmpty()) {
+                    rejoinRoom()
+                }
+            } else {
+                println("Network status unchanged: ${if (connected) "Connected" else "Disconnected"}")
+            }
+        }
+
+        override fun onCancelled(error: DatabaseError) {
+            println("Connection listener cancelled: ${error.message}")
+            showError("Connection check failed: ${error.message}", ErrorType.TRANSIENT)
+        }
+    }
+
+    init {
+        println("Initializing GameViewModel - Attaching connection listener")
+        database.root.child(".info/connected").addValueEventListener(connectionListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        println("GameViewModel cleared - Removing connection listener")
+        database.root.child(".info/connected").removeEventListener(connectionListener)
+        roomRef.removeEventListener(roomListener)
+    }
+
     fun setHostName(newHostName: String) {
         _gameState.value = _gameState.value.copy(hostName = newHostName)
     }
@@ -70,17 +106,37 @@ class GameViewModel(
             println("Firebase update started for room ${_gameState.value.roomCode}, player: ${_gameState.value.playerName}")
             val newPlayers = snapshot.child("players").children.mapNotNull { it.key }
             val hostName = snapshot.child("host").getValue(String::class.java) ?: "Host"
-            val newOtherPlayersHandSizes = newPlayers.filter { it != _gameState.value.playerName }.associateWith {
-                snapshot.child("gameData").child("playerHands").child(it).childrenCount.toInt()
+
+            // Reassign host if current host is not in players list
+            if (!newPlayers.contains(hostName) && newPlayers.isNotEmpty()) {
+                viewModelScope.launch {
+                    val newHost = newPlayers.first()
+                    roomRef.child("host").setValue(newHost).await()
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                    println("Host reassigned to $newHost after $hostName disconnected")
+                }
             }
+
+            // Check if this player is becoming host
+            val isNowHost = _gameState.value.playerName == hostName && !_gameState.value.isHost
+
+            // Update state with dialog trigger first
+            if (isNowHost) {
+                _gameState.value = _gameState.value.copy(showNewHostDialog = true)
+            }
+
+            // Then update the rest of the state
             _gameState.value = _gameState.value.copy(
                 players = newPlayers,
                 isHost = _gameState.value.playerName == hostName,
                 gameStarted = snapshot.child("state").value == "started",
                 deckEmpty = snapshot.child("gameData").child("deck").childrenCount == 0L,
                 deckSize = snapshot.child("gameData").child("deck").childrenCount.toInt(),
-                otherPlayersHandSizes = newOtherPlayersHandSizes
+                otherPlayersHandSizes = newPlayers.filter { it != _gameState.value.playerName }.associateWith {
+                    snapshot.child("gameData").child("playerHands").child(it).childrenCount.toInt()
+                }
             )
+
             println("Players updated: ${_gameState.value.players}")
             println("Deck size synced: ${_gameState.value.deckSize}, empty: ${_gameState.value.deckEmpty}")
             if (_gameState.value.gameStarted) {
@@ -176,16 +232,38 @@ class GameViewModel(
         _gameState.value = _gameState.value.copy(errorMessage = "", errorType = ErrorType.NONE)
     }
 
+    fun clearSuccess() {
+        _gameState.value = _gameState.value.copy(successMessage = "")
+    }
+
+    fun clearNewHostDialog() {
+        _gameState.value = _gameState.value.copy(showNewHostDialog = false)
+    }
+
     fun createRoom() {
         viewModelScope.launch {
             _gameState.value = _gameState.value.copy(isLoadingGeneral = true)
+            val now = System.currentTimeMillis()
+            val fifteenMinutesAgo = now - (15 * 60 * 1000)
+            val snapshot = database.get().await()
+            snapshot.children.forEach { roomSnapshot ->
+                val lastUpdated = roomSnapshot.child("lastUpdated").getValue(Long::class.java) ?: 0L
+                if (lastUpdated < fifteenMinutesAgo) {
+                    roomSnapshot.ref.removeValue().await()
+                    println("Deleted stale room ${roomSnapshot.key} (last updated: $lastUpdated)")
+                }
+            }
+
             val dealCount = 0
             val settings = RoomSettings(_gameState.value.numDecks, _gameState.value.includeJokers, dealCount)
             FirebaseOperations.createRoom(database, settings, _gameState.value.hostName).fold(
                 onSuccess = { code ->
-                    database.child(code).child("players").child(_gameState.value.hostName.trim())
+                    val roomRef = database.child(code)
+                    roomRef.child("players").child(_gameState.value.hostName.trim())
                         .setValue(mapOf("ready" to false)).await()
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     onRoomCreated(code)
+                    _gameState.value = _gameState.value.copy(successMessage = "Room $code created!")
                 },
                 onFailure = { error -> showError("Failed to create room: ${error.message}", ErrorType.TRANSIENT) }
             )
@@ -215,7 +293,9 @@ class GameViewModel(
                     FirebaseOperations.joinRoom(roomRef, trimmedName).fold(
                         onSuccess = { success ->
                             if (success) {
+                                roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                                 onRoomJoined(trimmedCode, trimmedName)
+                                _gameState.value = _gameState.value.copy(successMessage = "Joined room $trimmedCode as $trimmedName!")
                             } else {
                                 showError("Room $trimmedCode is full or name '$trimmedName' is taken!", ErrorType.CRITICAL)
                             }
@@ -225,6 +305,29 @@ class GameViewModel(
                 }
             }
             _gameState.value = _gameState.value.copy(isLoadingGeneral = false)
+        }
+    }
+
+    private fun rejoinRoom() {
+        viewModelScope.launch {
+            val roomCode = _gameState.value.roomCode
+            val playerName = _gameState.value.playerName
+            if (roomCode.isNotEmpty() && playerName.isNotEmpty()) {
+                val roomRef = database.child(roomCode)
+                val snapshot = roomRef.get().await()
+                if (snapshot.exists()) {
+                    if (!snapshot.child("players").child(playerName).exists()) {
+                        roomRef.child("players").child(playerName).setValue(mapOf("ready" to false)).await()
+                        roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                        println("Rejoined room $roomCode as $playerName")
+                    }
+                    roomRef.removeEventListener(roomListener)
+                    roomRef.addValueEventListener(roomListener)
+                } else {
+                    println("Room $roomCode no longer exists on reconnect")
+                    _gameState.value = _gameState.value.copy(screen = "home", roomCode = "", players = emptyList())
+                }
+            }
         }
     }
 
@@ -250,9 +353,11 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isPlayingCards = true)
             FirebaseOperations.playCards(roomRef, cardResourceMap, _gameState.value.playerName, cardsToPlay).fold(
                 onSuccess = {
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     _gameState.value = _gameState.value.copy(
                         selectedCards = emptyMap(),
-                        canRecall = true
+                        canRecall = true,
+                        successMessage = "${cardsToPlay.size} card(s) played!"
                     )
                     println("Hand size after play: ${_gameState.value.myHand.size}, cards played: ${cardsToPlay.size}")
                 },
@@ -272,7 +377,11 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isPlayingCards = true)
             FirebaseOperations.discardCards(roomRef, cardResourceMap, _gameState.value.playerName, cardsToDiscard).fold(
                 onSuccess = {
-                    _gameState.value = _gameState.value.copy(selectedCards = emptyMap())
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                    _gameState.value = _gameState.value.copy(
+                        selectedCards = emptyMap(),
+                        successMessage = "${cardsToDiscard.size} card(s) discarded!"
+                    )
                     println("Hand size after discard: ${_gameState.value.myHand.size}, discarded: ${cardsToDiscard.size}, discard pile: ${_gameState.value.discardPile.size}")
                 },
                 onFailure = { error -> showError("Failed to discard cards: ${error.message}", ErrorType.TRANSIENT) }
@@ -286,7 +395,11 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isLoadingGeneral = true)
             FirebaseOperations.recallLastPile(roomRef, cardResourceMap, _gameState.value.playerName).fold(
                 onSuccess = {
-                    _gameState.value = _gameState.value.copy(canRecall = false)
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                    _gameState.value = _gameState.value.copy(
+                        canRecall = false,
+                        successMessage = "Last pile recalled!"
+                    )
                 },
                 onFailure = { error -> showError("Failed to recall: ${error.message}", ErrorType.TRANSIENT) }
             )
@@ -299,7 +412,9 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isDrawingCard = true)
             FirebaseOperations.drawCard(roomRef, cardResourceMap, _gameState.value.playerName).fold(
                 onSuccess = {
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     println("Card drawn successfully for ${_gameState.value.playerName}")
+                    _gameState.value = _gameState.value.copy(successMessage = "Card drawn!")
                     refreshDeck()
                 },
                 onFailure = { error -> showError("Failed to draw: ${error.message}", ErrorType.TRANSIENT) }
@@ -313,7 +428,9 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isDrawingCard = true)
             FirebaseOperations.drawFromDiscard(roomRef, cardResourceMap, _gameState.value.playerName).fold(
                 onSuccess = {
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     println("Top card drawn from discard pile for ${_gameState.value.playerName}")
+                    _gameState.value = _gameState.value.copy(successMessage = "Card drawn from discard!")
                     refreshDiscardPile()
                 },
                 onFailure = { error -> showError("Failed to draw from discard: ${error.message}", ErrorType.TRANSIENT) }
@@ -327,7 +444,9 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isLoadingGeneral = true)
             FirebaseOperations.shuffleDeck(roomRef, cardResourceMap).fold(
                 onSuccess = {
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     println("Deck shuffled successfully for ${_gameState.value.playerName}")
+                    _gameState.value = _gameState.value.copy(successMessage = "Deck shuffled!")
                     refreshDeck()
                 },
                 onFailure = { error -> showError("Failed to shuffle: ${error.message}", ErrorType.TRANSIENT) }
@@ -348,7 +467,9 @@ class GameViewModel(
             }
             FirebaseOperations.dealDeck(roomRef, cardResourceMap, _gameState.value.players, count).fold(
                 onSuccess = {
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
                     println("Dealt $count cards successfully for ${_gameState.value.playerName}")
+                    _gameState.value = _gameState.value.copy(successMessage = "Dealt $count cards to each player!")
                     refreshDeck()
                 },
                 onFailure = { error -> showError("Failed to deal: ${error.message}", ErrorType.TRANSIENT) }
@@ -367,7 +488,11 @@ class GameViewModel(
             _gameState.value = _gameState.value.copy(isLoadingGeneral = true)
             FirebaseOperations.moveCards(roomRef, cardResourceMap, _gameState.value.playerName, targetPlayer, cardsToMove).fold(
                 onSuccess = {
-                    _gameState.value = _gameState.value.copy(selectedCards = emptyMap())
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                    _gameState.value = _gameState.value.copy(
+                        selectedCards = emptyMap(),
+                        successMessage = "Moved ${cardsToMove.size} card(s) to $targetPlayer!"
+                    )
                 },
                 onFailure = { error -> showError("Failed to move cards: ${error.message}", ErrorType.TRANSIENT) }
             )
@@ -384,7 +509,11 @@ class GameViewModel(
             println("Starting game with $numDecks decks, dealCount: $dealCount, players: ${_gameState.value.players.size}")
             FirebaseOperations.startGame(roomRef, cardResourceMap, _gameState.value.players, dealCount, numDecks).fold(
                 onSuccess = {
-                    _gameState.value = _gameState.value.copy(showMenu = false)
+                    roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
+                    _gameState.value = _gameState.value.copy(
+                        showMenu = false,
+                        successMessage = "Game started with $numDecks decks!"
+                    )
                     println("Game started successfully by ${_gameState.value.playerName} with $dealCount cards and $numDecks decks")
                 },
                 onFailure = { error -> showError("Failed to start game: ${error.message}", ErrorType.TRANSIENT) }
@@ -395,14 +524,20 @@ class GameViewModel(
 
     fun sortByRank() {
         val sortedHand = CardGameLogic.sortByRank(_gameState.value.myHand)
-        _gameState.value = _gameState.value.copy(myHand = sortedHand)
+        _gameState.value = _gameState.value.copy(
+            myHand = sortedHand,
+            successMessage = "Hand sorted by rank!"
+        )
         updateHandInFirebase(sortedHand)
         println("Sorted hand by rank for ${_gameState.value.playerName}: ${_gameState.value.myHand.map { it.rank + " of " + it.suit }}")
     }
 
     fun sortBySuit() {
         val sortedHand = CardGameLogic.sortBySuit(_gameState.value.myHand)
-        _gameState.value = _gameState.value.copy(myHand = sortedHand)
+        _gameState.value = _gameState.value.copy(
+            myHand = sortedHand,
+            successMessage = "Hand sorted by suit!"
+        )
         updateHandInFirebase(sortedHand)
         println("Sorted hand by suit for ${_gameState.value.playerName}: ${_gameState.value.myHand.map { it.rank + " of " + it.suit }}")
     }
@@ -418,6 +553,7 @@ class GameViewModel(
             roomRef.child("gameData").child("playerHands").child(_gameState.value.playerName)
                 .setValue(hand.map { mapOf("suit" to it.suit, "rank" to it.rank, "id" to it.id) })
                 .await()
+            roomRef.child("lastUpdated").setValue(System.currentTimeMillis()).await()
             println("Hand synced to Firebase: ${hand.map { it.rank + " of " + it.suit }}")
         }
     }
@@ -466,12 +602,11 @@ class GameViewModel(
     }
 
     fun setupOnDisconnect() {
-        if (_gameState.value.isHost && _gameState.value.roomCode.isNotEmpty()) {
-            val hostPresenceRef = roomRef.child("hostPresence")
-            hostPresenceRef.setValue(true)
-            hostPresenceRef.onDisconnect().removeValue()
-            roomRef.onDisconnect().removeValue()
-            println("onDisconnect set up for room ${_gameState.value.roomCode}")
+        if (_gameState.value.roomCode.isNotEmpty()) {
+            val playerPresenceRef = roomRef.child("players").child(_gameState.value.playerName)
+            playerPresenceRef.setValue(mapOf("ready" to false))
+            playerPresenceRef.onDisconnect().removeValue()
+            println("onDisconnect set up for player ${_gameState.value.playerName} in room ${_gameState.value.roomCode}")
         }
     }
 

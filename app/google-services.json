@@ -1,5 +1,6 @@
 {
   "project_info": {
+    "database_url": "https://cardsnow-21673-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_number": "487687852080",
     "project_id": "cardsnow-21673",
     "storage_bucket": "cardsnow-21673.firebasestorage.app"

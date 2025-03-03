@@ -8,7 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,25 +19,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.cardgameapp.ErrorType
 import kotlinx.coroutines.delay
 
 @Composable
-fun ErrorMessage(
+fun SuccessMessage(
     message: String,
-    errorType: ErrorType,
     onDismiss: () -> Unit
 ) {
     if (message.isNotEmpty()) {
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(),
-            exit = fadeOut(animationSpec = tween(durationMillis = 500)) // Faster exit
+            exit = fadeOut(animationSpec = tween(durationMillis = 400)) // Faster exit
         ) {
             AlertDialog(
-                onDismissRequest = { if (errorType != ErrorType.CRITICAL) onDismiss() },
+                onDismissRequest = { onDismiss() },
                 modifier = Modifier
-                    .background(Color(0xFFFFEBEE), shape = RoundedCornerShape(12.dp)) // Light red
+                    .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(12.dp)) // Light green
                     .widthIn(max = 280.dp), // Slimmer width
                 title = {
                     Row(
@@ -46,17 +44,17 @@ fun ErrorMessage(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Error",
-                            tint = Color(0xFFD32F2F), // Dark red
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Success",
+                            tint = Color(0xFF2E7D32), // Dark green
                             modifier = Modifier.size(20.dp) // Smaller icon
                         )
                         Spacer(Modifier.width(6.dp)) // Tighter spacing
                         Text(
-                            text = "Error",
+                            text = "Success",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp, // Reduced from 20sp
-                            color = Color(0xFFD32F2F),
+                            color = Color(0xFF2E7D32),
                             textAlign = TextAlign.Center
                         )
                     }
@@ -69,24 +67,16 @@ fun ErrorMessage(
                         fontSize = 14.sp // Reduced from 16sp
                     )
                 },
-                confirmButton = {
-                    if (errorType == ErrorType.CRITICAL) {
-                        TextButton(onClick = onDismiss) {
-                            Text("OK", color = Color(0xFFD32F2F), fontSize = 14.sp)
-                        }
-                    }
-                },
-                dismissButton = null,
-                containerColor = Color(0xFFFFEBEE),
+                confirmButton = {},
+                dismissButton = {},
+                containerColor = Color(0xFFE8F5E9),
                 shape = RoundedCornerShape(12.dp),
                 tonalElevation = 0.dp // Flat look
             )
         }
-        if (errorType == ErrorType.TRANSIENT) {
-            LaunchedEffect(message) {
-                delay(3000) // Keep 3s for transient
-                onDismiss()
-            }
+        LaunchedEffect(message) {
+            delay(2000) // Keep 2s for success
+            onDismiss()
         }
     }
 }

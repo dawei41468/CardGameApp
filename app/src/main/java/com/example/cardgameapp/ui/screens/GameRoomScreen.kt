@@ -41,6 +41,7 @@ import com.example.cardgameapp.R
 import com.example.cardgameapp.ui.components.ActionButton
 import com.example.cardgameapp.ui.components.CardHand
 import com.example.cardgameapp.ui.components.ErrorMessage
+import com.example.cardgameapp.ui.components.SuccessMessage
 import kotlin.math.min
 
 @Composable
@@ -134,8 +135,8 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                     CardHand(
                                         cards = List(handSize) { Card("", "", R.drawable.card_back_red) },
                                         modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                        cardWidth = 40.dp,
-                                        overlapOffset = 9.dp
+                                        cardWidth = 50.dp,
+                                        overlapOffset = 12.dp
                                     )
                                 }
                             }
@@ -187,7 +188,7 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                     )
                                     CardHand(
                                         cards = listOf(Card("", "", if (gameState.deckEmpty) R.drawable.empty_deck else R.drawable.card_back_red)),
-                                        cardWidth = 65.dp,
+                                        cardWidth = 70.dp,
                                         overlapOffset = 0.dp
                                     )
                                 }
@@ -220,7 +221,7 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                     if (gameState.discardPile.isNotEmpty()) {
                                         CardHand(
                                             cards = gameState.discardPile,
-                                            cardWidth = 65.dp,
+                                            cardWidth = 70.dp,
                                             overlapOffset = 0.dp
                                         )
                                     }
@@ -235,8 +236,8 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                             items(gameState.table) { pile ->
                                 CardHand(
                                     cards = pile,
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(start = 8.dp),
-                                    cardWidth = 65.dp
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(start = 12.dp),
+                                    cardWidth = 70.dp
                                 )
                             }
                         }
@@ -266,8 +267,8 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 isSelectable = true,
                                 selectedCards = gameState.selectedCards,
                                 onCardSelected = viewModel::toggleCardSelection,
-                                cardWidth = 70.dp,
-                                overlapOffset = 18.dp,
+                                cardWidth = 75.dp,
+                                overlapOffset = 20.dp,
                                 onCardsReordered = viewModel::reorderHand
                             )
                         }
@@ -325,28 +326,50 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                     if (showSortDialog) {
                         AlertDialog(
                             onDismissRequest = { showSortDialog = false },
-                            title = { Text("Sort Hand") },
-                            text = { Text("Choose a sorting method:") },
+                            modifier = Modifier
+                                .background(Color(0xFFF5F5F5), shape = RoundedCornerShape(12.dp))
+                                .widthIn(max = 280.dp),
+                            title = {
+                                Text(
+                                    text = "Sort Hand",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = Color.Black,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = "Choose a sorting method:",
+                                    color = Color.Black,
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 14.sp
+                                )
+                            },
                             confirmButton = {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(8.dp),
+                                        .padding(bottom = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
                                     TextButton(onClick = { viewModel.sortByRank(); showSortDialog = false }) {
-                                        Text("Rank")
+                                        Text("Rank", color = Color(0xFF1976D2), fontSize = 14.sp)
                                     }
                                     TextButton(onClick = { viewModel.sortBySuit(); showSortDialog = false }) {
-                                        Text("Suit")
+                                        Text("Suit", color = Color(0xFF1976D2), fontSize = 14.sp)
                                     }
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showSortDialog = false }) {
-                                    Text("Cancel")
+                                    Text("Cancel", color = Color(0xFF1976D2), fontSize = 14.sp)
                                 }
-                            }
+                            },
+                            containerColor = Color(0xFFF5F5F5),
+                            shape = RoundedCornerShape(12.dp),
+                            tonalElevation = 0.dp
                         )
                     }
                 }
@@ -430,6 +453,22 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                         }
                     }
                 }
+            }
+        }
+
+        if (!gameState.isConnected) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Reconnecting…",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
@@ -610,8 +649,27 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                         showShuffleDialog = false
                         showActionsBox = false
                     },
-                    title = { Text("Shuffle Table") },
-                    text = { Text("Shuffle all table cards into the deck?") },
+                    modifier = Modifier
+                        .background(Color(0xFFF5F5F5), shape = RoundedCornerShape(12.dp))
+                        .widthIn(max = 280.dp),
+                    title = {
+                        Text(
+                            text = "Shuffle Table",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "Shuffle all table cards into the deck?",
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp
+                        )
+                    },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -619,7 +677,7 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 showShuffleDialog = false
                                 showActionsBox = false
                             }
-                        ) { Text("Yes") }
+                        ) { Text("Yes", color = Color(0xFF1976D2), fontSize = 14.sp) }
                     },
                     dismissButton = {
                         TextButton(
@@ -627,8 +685,11 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 showShuffleDialog = false
                                 showActionsBox = false
                             }
-                        ) { Text("No") }
-                    }
+                        ) { Text("No", color = Color(0xFF1976D2), fontSize = 14.sp) }
+                    },
+                    containerColor = Color(0xFFF5F5F5),
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 0.dp
                 )
             }
 
@@ -640,11 +701,28 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                         showDealDialog = false
                         showActionsBox = false
                     },
-                    title = { Text("Deal Cards") },
+                    modifier = Modifier
+                        .background(Color(0xFFF5F5F5), shape = RoundedCornerShape(12.dp))
+                        .widthIn(max = 280.dp),
+                    title = {
+                        Text(
+                            text = "Deal Cards",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
                     text = {
-                        Column {
-                            Text("How many cards to deal to each player?")
-                            Spacer(Modifier.height(8.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "How many cards to deal to each player?",
+                                color = Color.Black,
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp
+                            )
+                            Spacer(Modifier.height(6.dp))
                             OutlinedTextField(
                                 value = dealCountInput,
                                 onValueChange = { newValue ->
@@ -654,8 +732,9 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                         dealCountInput = filtered
                                     }
                                 },
-                                label = { Text("Card Count (0 - $maxCardsPerPlayer)") },
+                                label = { Text("Count (0 - $maxCardsPerPlayer)", fontSize = 12.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -673,7 +752,7 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                     viewModel.showError("Enter a number greater than 0!", ErrorType.TRANSIENT)
                                 }
                             }
-                        ) { Text("Deal") }
+                        ) { Text("Deal", color = Color(0xFF1976D2), fontSize = 14.sp) }
                     },
                     dismissButton = {
                         TextButton(
@@ -681,8 +760,11 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 showDealDialog = false
                                 showActionsBox = false
                             }
-                        ) { Text("Cancel") }
-                    }
+                        ) { Text("Cancel", color = Color(0xFF1976D2), fontSize = 14.sp) }
+                    },
+                    containerColor = Color(0xFFF5F5F5),
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 0.dp
                 )
             }
 
@@ -693,11 +775,28 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                         showActionsBox = false
                         selectedPlayer = null
                     },
-                    title = { Text("Move Cards") },
+                    modifier = Modifier
+                        .background(Color(0xFFF5F5F5), shape = RoundedCornerShape(12.dp))
+                        .widthIn(max = 280.dp),
+                    title = {
+                        Text(
+                            text = "Move Cards",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
                     text = {
                         Column {
-                            Text("Select a player to move cards to:")
-                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Select a player to move cards to:",
+                                color = Color.Black,
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp
+                            )
+                            Spacer(Modifier.height(6.dp))
                             val otherPlayers = gameState.players.filter { it != gameState.playerName }
                             Column {
                                 otherPlayers.forEach { player ->
@@ -710,9 +809,11 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                     ) {
                                         RadioButton(
                                             selected = selectedPlayer == player,
-                                            onClick = { selectedPlayer = player }
+                                            onClick = { selectedPlayer = player },
+                                            modifier = Modifier.size(20.dp)
                                         )
-                                        Text(player, fontSize = 16.sp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(player, fontSize = 14.sp, color = Color.Black)
                                     }
                                 }
                             }
@@ -729,7 +830,7 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 } ?: viewModel.showError("Select a player!", ErrorType.TRANSIENT)
                             },
                             enabled = selectedPlayer != null
-                        ) { Text("Move") }
+                        ) { Text("Move", color = Color(0xFF1976D2), fontSize = 14.sp) }
                     },
                     dismissButton = {
                         TextButton(
@@ -738,8 +839,46 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
                                 showActionsBox = false
                                 selectedPlayer = null
                             }
-                        ) { Text("Cancel") }
-                    }
+                        ) { Text("Cancel", color = Color(0xFF1976D2), fontSize = 14.sp) }
+                    },
+                    containerColor = Color(0xFFF5F5F5),
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 0.dp
+                )
+            }
+
+            if (gameState.showNewHostDialog) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.clearNewHostDialog() },
+                    modifier = Modifier
+                        .background(Color(0xFFF5F5F5), shape = RoundedCornerShape(12.dp))
+                        .widthIn(max = 280.dp),
+                    title = {
+                        Text(
+                            text = "You Are Now Host",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "The previous host has disconnected. You are now the host of this game.",
+                            color = Color.Black,
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.clearNewHostDialog() }) {
+                            Text("OK", color = Color(0xFF1976D2), fontSize = 14.sp)
+                        }
+                    },
+                    containerColor = Color(0xFFF5F5F5),
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 0.dp
                 )
             }
 
@@ -756,6 +895,10 @@ fun GameRoomScreen(viewModel: GameViewModel, activity: MainActivity) {
             message = viewModel.gameState.value.errorMessage,
             errorType = viewModel.gameState.value.errorType,
             onDismiss = { viewModel.clearError() }
+        )
+        SuccessMessage(
+            message = viewModel.gameState.value.successMessage,
+            onDismiss = { viewModel.clearSuccess() }
         )
     }
 }

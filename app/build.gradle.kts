@@ -5,6 +5,9 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+// Explicitly apply Android plugin (sometimes helps lint)
+apply(plugin = "com.android.application")
+
 android {
     namespace = "com.example.cardgameapp"
     compileSdk = 35
@@ -14,7 +17,7 @@ android {
         minSdk = 23
         targetSdk = 35
         versionCode = 1
-        versionName = "0.8.1" // Updated from 1.0 to reflect your target
+        versionName = "0.8.3" // Updated to reflect current state
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,7 +48,6 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
     }
-    // Removed: ndkVersion = "25.1.8937393" or any NDK reference
 }
 
 dependencies {
