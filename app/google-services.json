@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "487687852080",
+    "project_id": "cardsnow-21673",
+    "storage_bucket": "cardsnow-21673.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:487687852080:android:b1550d94da76c920e65df5",
+        "android_client_info": {
+          "package_name": "com.example.cardgameapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4yEP3rEMP7o3FKcPIsJXqOr4OSINScGg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
